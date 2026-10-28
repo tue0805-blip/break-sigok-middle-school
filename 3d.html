@@ -1,0 +1,1955 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>SMASH SIGOK — 시곡중학교 리얼 3D 캠퍼스 스매시</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&family=Black+Han+Sans&display=swap');
+    
+    * {
+      user-select: none;
+      -webkit-user-select: none;
+      box-sizing: border-box;
+      touch-action: manipulation;
+    }
+    
+    body {
+      font-family: 'Pretendard', sans-serif;
+      overflow: hidden;
+      background-color: #0b0f19;
+      margin: 0;
+      padding: 0;
+    }
+
+    .font-impact {
+      font-family: 'Black Han Sans', sans-serif;
+    }
+
+    /* SMASH 특유의 글래스모피즘 HUD */
+    .smash-card {
+      background: rgba(13, 20, 36, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 14px 35px -8px rgba(0, 0, 0, 0.6);
+    }
+
+    .weapon-btn {
+      transition: all 0.16s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(30, 41, 59, 0.65);
+    }
+
+    .weapon-btn:hover {
+      background: rgba(51, 65, 85, 0.9);
+      border-color: rgba(255, 255, 255, 0.35);
+      transform: translateY(-2px);
+    }
+
+    .weapon-btn.active {
+      background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+      border-color: #93c5fd !important;
+      box-shadow: 0 0 20px rgba(37, 99, 235, 0.75);
+      transform: translateY(-3px) scale(1.04);
+    }
+
+    /* 3D 씬 내 입체 플로팅 네임태그 */
+    .building-tag {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      pointer-events: none;
+      font-size: 11px;
+      font-weight: 800;
+      color: #f8fafc;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 3px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+      transition: opacity 0.15s ease-out;
+      letter-spacing: -0.2px;
+    }
+
+    .building-tag::after {
+      content: '';
+      position: absolute;
+      bottom: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-width: 5px 5px 0 5px;
+      border-style: solid;
+      border-color: rgba(15, 23, 42, 0.92) transparent transparent transparent;
+    }
+
+    /* 화면 지진 및 타격 진동 */
+    .shake-light { animation: shakeAnim 0.26s cubic-bezier(.36,.07,.19,.97) both; }
+    .shake-heavy { animation: shakeHeavyAnim 0.6s cubic-bezier(.36,.07,.19,.97) both; }
+
+    @keyframes shakeAnim {
+      10%, 90% { transform: translate3d(-2px, 1px, 0); }
+      20%, 80% { transform: translate3d(3px, -2px, 0); }
+      30%, 50%, 70% { transform: translate3d(-5px, 3px, 0); }
+      40%, 60% { transform: translate3d(4px, -3px, 0); }
+    }
+
+    @keyframes shakeHeavyAnim {
+      10%, 90% { transform: translate3d(-8px, 6px, 0) rotate(0.5deg); }
+      20%, 80% { transform: translate3d(9px, -8px, 0) rotate(-0.6deg); }
+      30%, 50%, 70% { transform: translate3d(-14px, 10px, 0) rotate(0.8deg); }
+      40%, 60% { transform: translate3d(12px, -9px, 0); }
+    }
+
+    #nuke-flash {
+      pointer-events: none;
+      transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+  </style>
+</head>
+<body class="w-screen h-screen flex flex-col justify-between overflow-hidden text-white relative select-none">
+
+  <!-- Three.js 3D 캔버스 뷰포트 -->
+  <div id="three-container" class="absolute inset-0 z-0 cursor-crosshair"></div>
+
+  <!-- 3D 건물 레이블 오버레이 -->
+  <div id="tags-container" class="absolute inset-0 z-10 pointer-events-none overflow-hidden"></div>
+
+  <!-- 핵폭탄 백색 플래시 -->
+  <div id="nuke-flash" class="absolute inset-0 z-30 bg-white opacity-0"></div>
+
+  <!-- 상단 HUD -->
+  <header class="relative z-20 w-full px-4 pt-3 pb-1 flex items-start justify-between pointer-events-none">
+    
+    <!-- 좌측 학교 타이틀 -->
+    <div class="smash-card px-4 py-2.5 rounded-2xl flex items-center space-x-3 pointer-events-auto border border-blue-500/20">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-700 flex items-center justify-center font-impact text-xl shadow-lg shadow-blue-500/30 border border-blue-300/40">
+        시
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <span class="text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">REAL 3D</span>
+          <h1 class="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+            시곡중학교 <span class="text-xs text-slate-400 font-semibold hidden sm:inline">SIGOK MIDDLE SCHOOL</span>
+          </h1>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+          <i class="fa-solid fa-location-dot text-rose-500 text-[10px]"></i>
+          <span>경기 안산시 상록구 감골로 123 (본관·청기와조회대·스타홀)</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- 우측 점수 및 파괴율 -->
+    <div class="flex items-center space-x-2 sm:space-x-3 pointer-events-auto">
+      <div class="smash-card px-4 py-2 rounded-2xl text-right min-w-[110px]">
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">SCORE</div>
+        <div id="score-display" class="text-xl sm:text-2xl font-impact tracking-wider text-amber-400">0</div>
+      </div>
+
+      <div class="smash-card px-4 py-2 rounded-2xl text-right min-w-[95px]">
+        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">파괴율</div>
+        <div id="destruction-rate" class="text-xl sm:text-2xl font-impact tracking-wider text-rose-500">0%</div>
+      </div>
+
+      <button id="btn-reset" class="smash-card hover:bg-slate-800 active:scale-95 transition p-3 rounded-2xl text-slate-200 border border-white/10" title="전부 복구">
+        <i class="fa-solid fa-arrow-rotate-left text-sm"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- 중앙 힌트 팁 -->
+  <div class="relative z-20 w-full flex justify-center pointer-events-none px-4">
+    <div id="weapon-tip" class="smash-card px-4 py-1.5 rounded-full text-xs text-slate-200 font-semibold tracking-wide border border-white/15 shadow-xl">
+      <span class="text-blue-400 font-bold">폭탄</span> : 좌클릭으로 실제 시곡중 건물을 정밀 폭격합니다. (키 1~6)
+    </div>
+  </div>
+
+  <!-- 하단 무기 바 & 유틸리티 툴바 -->
+  <footer class="relative z-20 w-full p-3 sm:p-4 flex flex-col items-center pointer-events-none gap-2">
+    
+    <!-- SMASH 6종 무기 셀렉터 -->
+    <div class="smash-card p-1.5 sm:p-2 rounded-2xl flex items-center space-x-1.5 sm:space-x-2 pointer-events-auto max-w-full overflow-x-auto shadow-2xl">
+      
+      <button class="weapon-btn active flex items-center gap-2 px-3 py-2 rounded-xl text-left min-w-[85px] sm:min-w-[102px]" data-weapon="bomb" data-key="1">
+        <span class="text-xl">💣</span>
+        <div>
+          <div class="text-xs font-bold leading-none">폭탄</div>
+          <div class="text-[9px] text-slate-300 mt-1">넓게 날림 <kbd class="px-1 py-0.2 bg-black/40 rounded text-[8px] text-slate-300 border border-white/20">1</kbd></div>
+        </div>
+      </button>
+
+      <button class="weapon-btn flex items-center gap-2 px-3 py-2 rounded-xl text-left min-w-[85px] sm:min-w-[102px]" data-weapon="bat" data-key="2">
+        <span class="text-xl">⚾</span>
+        <div>
+          <div class="text-xs font-bold leading-none">배트</div>
+          <div class="text-[9px] text-slate-300 mt-1">멀리 날림 <kbd class="px-1 py-0.2 bg-black/40 rounded text-[8px] text-slate-300 border border-white/20">2</kbd></div>
+        </div>
+      </button>
+
+      <button class="weapon-btn flex items-center gap-2 px-3 py-2 rounded-xl text-left min-w-[85px] sm:min-w-[102px]" data-weapon="laser" data-key="3">
+        <span class="text-xl">⚡</span>
+        <div>
+          <div class="text-xs font-bold leading-none">레이저</div>
+          <div class="text-[9px] text-slate-300 mt-1">끌어서 자름 <kbd class="px-1 py-0.2 bg-black/40 rounded text-[8px] text-slate-300 border border-white/20">3</kbd></div>
+        </div>
+      </button>
+
+      <button class="weapon-btn flex items-center gap-2 px-3 py-2 rounded-xl text-left min-w-[85px] sm:min-w-[102px]" data-weapon="meteor" data-key="4">
+        <span class="text-xl">☄️</span>
+        <div>
+          <div class="text-xs font-bold leading-none">운석</div>
+          <div class="text-[9px] text-slate-300 mt-1">하늘에서 <kbd class="px-1 py-0.2 bg-black/40 rounded text-[8px] text-slate-300 border border-white/20">4</kbd></div>
+        </div>
+      </button>
+
+      <button class="weapon-btn flex items-center gap-2 px-3 py-2 rounded-xl text-left min-w-[85px] sm:min-w-[102px]" data-weapon="earthquake" data-key="5">
+        <span class="text-xl">🌋</span>
+        <div>
+          <div class="text-xs font-bold leading-none">지진</div>
+          <div class="text-[9px] text-slate-300 mt-1">땅이 흔들림 <kbd class="px-1 py-0.2 bg-black/40 rounded text-[8px] text-slate-300 border border-white/20">5</kbd></div>
+        </div>
+      </button>
+
+      <button class="weapon-btn flex items-center gap-2 px-3 py-2 rounded-xl text-left min-w-[85px] sm:min-w-[102px] border-rose-500/40" data-weapon="nuke" data-key="6">
+        <span class="text-xl">☢️</span>
+        <div>
+          <div class="text-xs font-bold leading-none text-rose-300">핵폭탄</div>
+          <div class="text-[9px] text-slate-300 mt-1">통째로 <kbd class="px-1 py-0.2 bg-black/40 rounded text-[8px] text-slate-300 border border-white/20">6</kbd></div>
+        </div>
+      </button>
+
+    </div>
+
+    <!-- 유틸리티 서브 바 -->
+    <div class="smash-card px-3.5 py-1.5 rounded-xl flex items-center space-x-3 pointer-events-auto text-xs text-slate-300 font-semibold border border-white/10">
+      <button id="toggle-names" class="hover:text-white transition flex items-center gap-1.5 text-blue-400">
+        <i class="fa-solid fa-tag"></i> <span>이름 표시</span>
+      </button>
+      <span class="text-slate-600">|</span>
+      <button id="btn-sound" class="hover:text-white transition flex items-center gap-1.5 text-emerald-400">
+        <i id="sound-icon" class="fa-solid fa-volume-high"></i> <span>소리</span>
+      </button>
+      <span class="text-slate-600">|</span>
+      <button id="btn-cam-default" class="hover:text-white transition flex items-center gap-1.5">
+        <i class="fa-solid fa-school"></i> <span>본관 정면 뷰</span>
+      </button>
+      <span class="text-slate-600">|</span>
+      <button id="btn-cam-top" class="hover:text-white transition flex items-center gap-1.5">
+        <i class="fa-solid fa-satellite"></i> <span>위성 항공 뷰</span>
+      </button>
+      <span class="text-slate-600">|</span>
+      <button id="btn-time" class="hover:text-white transition flex items-center gap-1.5">
+        <i id="time-icon" class="fa-solid fa-moon"></i> <span>밤</span>
+      </button>
+    </div>
+
+  </footer>
+
+  <!-- SMASH 결과 카드 모달 -->
+  <div id="victory-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+    <div class="smash-card p-6 sm:p-7 rounded-3xl max-w-sm w-11/12 text-center border-blue-500/40 shadow-2xl transform scale-95 transition-transform duration-300" id="modal-box">
+      <div class="inline-block px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/40 text-xs font-bold mb-3 tracking-widest uppercase">
+        SMASH COMPLETED
+      </div>
+      <h2 class="text-2xl sm:text-3xl font-impact tracking-wide text-white mb-1">
+        시곡중학교 완파 완료!
+      </h2>
+      <p class="text-xs text-slate-400 mb-5">
+        경기도 안산시 감골로 123 본관과 스타홀이 지구 중심까지 붕괴되었습니다.
+      </p>
+
+      <div class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800 mb-5 flex justify-around">
+        <div>
+          <span class="text-[11px] text-slate-400 block mb-0.5 font-bold">최종 점수</span>
+          <p id="final-score" class="text-2xl font-impact text-amber-400">0</p>
+        </div>
+        <div class="w-px bg-slate-800"></div>
+        <div>
+          <span class="text-[11px] text-slate-400 block mb-0.5 font-bold">파괴 등급</span>
+          <p class="text-2xl font-impact text-rose-500">SSS</p>
+        </div>
+        <div class="w-px bg-slate-800"></div>
+        <div>
+          <span class="text-[11px] text-slate-400 block mb-0.5 font-bold">타격 횟수</span>
+          <p id="final-hits" class="text-2xl font-impact text-blue-400">0</p>
+        </div>
+      </div>
+
+      <button id="modal-rebuild" class="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-lg shadow-blue-500/30 text-sm active:scale-95">
+        <i class="fa-solid fa-rotate-left mr-1.5"></i> 캠퍼스 전부 복구 (다시 하기)
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * REAL 3D SMASH SIGOK MIDDLE SCHOOL
+     * 정밀 건축 모델링 & 사실적 텍스처 & 물리 파괴 시스템
+     */
+
+    // --- 1. 신디사이저 사운드 엔진 ---
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playBomb() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const dur = 0.85;
+        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(700, now);
+        filter.frequency.exponentialRampToValueAtTime(35, now + dur);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.85, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + dur);
+
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        src.start(now);
+      }
+      playBat() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(70, now + 0.2);
+        gain.gain.setValueAtTime(0.75, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.22);
+      }
+      playLaser() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(1100, now);
+        osc.frequency.linearRampToValueAtTime(280, now + 0.15);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.17);
+      }
+      playMeteor() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(160, now);
+        osc.frequency.exponentialRampToValueAtTime(32, now + 1.0);
+        gain.gain.setValueAtTime(0.9, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 1.05);
+      }
+      playEarthquake() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const dur = 1.5;
+        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(140, now);
+        filter.frequency.linearRampToValueAtTime(30, now + dur);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.8, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + dur);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        src.start(now);
+      }
+      playNuke() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const dur = 2.6;
+        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(900, now);
+        filter.frequency.exponentialRampToValueAtTime(20, now + dur);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(1.0, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        src.start(now);
+      }
+    }
+    const sound = new SoundEngine();
+
+    // --- 2. Three.js 정밀 씬 & 고급 조명 렌더러 ---
+    const container = document.getElementById('three-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f172a);
+    scene.fog = new THREE.FogExp2(0x0f172a, 0.0015);
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 2500);
+    // 실제 전경 사진 각도 (학교 정면을 바라보는 각도)
+    const initialCamPos = new THREE.Vector3(5, 75, 175);
+    const initialTarget = new THREE.Vector3(5, 15, -20);
+    camera.position.copy(initialCamPos);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    container.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.minDistance = 25;
+    controls.maxDistance = 500;
+    controls.target.copy(initialTarget);
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.NONE, // 좌클릭은 폭격 파괴 전용
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE
+    };
+
+    // 실감나는 정오 태양광 및 환경광
+    const hemiLight = new THREE.HemisphereLight(0xecf8ff, 0x1e293b, 0.7);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfff6eb, 1.45);
+    sunLight.position.set(130, 240, 140);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 15;
+    sunLight.shadow.camera.far = 650;
+    const shadowD = 180;
+    sunLight.shadow.camera.left = -shadowD;
+    sunLight.shadow.camera.right = shadowD;
+    sunLight.shadow.camera.top = shadowD;
+    sunLight.shadow.camera.bottom = -shadowD;
+    sunLight.shadow.bias = -0.0003;
+    scene.add(sunLight);
+
+    const ambientLight = new THREE.AmbientLight(0x475569, 0.45);
+    scene.add(ambientLight);
+
+    // --- 3. 절차적 사실적 텍스처 생성기 (Procedural Texture Generators) ---
+    // 1) 사진 속 본관 적벽돌 + 화이트 기둥 + 창틀 텍스처
+    function createRealisticFacadeTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+
+      // 적갈색 벽돌 바탕
+      ctx.fillStyle = '#9b3d2b';
+      ctx.fillRect(0, 0, 512, 512);
+
+      // 벽돌 줄눈 디테일
+      ctx.fillStyle = '#832f1f';
+      for (let y = 0; y < 512; y += 12) {
+        ctx.fillRect(0, y, 512, 1);
+        const offset = (y / 12) % 2 === 0 ? 0 : 16;
+        for (let x = offset; x < 512; x += 32) {
+          ctx.fillRect(x, y, 1, 12);
+        }
+      }
+
+      // 베이지색 기둥 라인
+      ctx.fillStyle = '#f1e7d8';
+      ctx.fillRect(0, 0, 64, 512);
+      ctx.fillRect(448, 0, 64, 512);
+      ctx.fillRect(0, 0, 512, 32); // 층간 띠장
+
+      // 알루미늄 새시 유리창 (하늘 반사 그라데이션)
+      const grad = ctx.createLinearGradient(80, 50, 432, 450);
+      grad.addColorStop(0, '#7dd3fc');
+      grad.addColorStop(0.5, '#38bdf8');
+      grad.addColorStop(1, '#0284c7');
+      ctx.fillStyle = grad;
+      ctx.fillRect(80, 50, 352, 400);
+
+      // 창틀 프레임 격자 (실제 사진 속 2x2 분할창)
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(80, 50, 352, 400);
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(256, 50);
+      ctx.lineTo(256, 450);
+      ctx.moveTo(80, 250);
+      ctx.lineTo(432, 250);
+      ctx.stroke();
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      return tex;
+    }
+
+    // 2) 녹색 우레탄 방수 옥상 텍스처
+    function createRoofUrethaneTexture() {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#15803d'; // 짙은 녹색 방수 페인트
+      ctx.fillRect(0, 0, 256, 256);
+
+      // 패치워크 및 노후 줄눈
+      ctx.strokeStyle = '#166534';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(4, 4, 248, 248);
+      ctx.beginPath();
+      ctx.moveTo(128, 0); ctx.lineTo(128, 256);
+      ctx.moveTo(0, 128); ctx.lineTo(256, 128);
+      ctx.stroke();
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(6, 2);
+      return tex;
+    }
+
+    // 3) 스타홀 골판 샌드위치 패널 지붕 텍스처
+    function createGymRoofTexture() {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(0, 0, 256, 256);
+
+      // 골판 요철 줄무늬
+      for (let x = 0; x < 256; x += 12) {
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillRect(x, 0, 4, 256);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(x + 4, 0, 2, 256);
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(4, 4);
+      return tex;
+    }
+
+    // 4) 실제 위성 사진 기반 디테일 지형도 (감골로 도로, 마사토 모래, 보도블록)
+    function createRealSatelliteGroundTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 1024;
+      const ctx = c.getContext('2d');
+
+      // 베이스 아스팔트 & 토양
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // 서쪽 울창한 녹지 숲 지형
+      ctx.fillStyle = '#14532d';
+      ctx.fillRect(0, 0, 220, 1024);
+
+      // 본관 앞마당 보도블록 광장
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(220, 190, 710, 160);
+
+      // 보도블록 격자
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1;
+      for (let x = 220; x < 930; x += 25) {
+        ctx.beginPath(); ctx.moveTo(x, 190); ctx.lineTo(x, 350); ctx.stroke();
+      }
+
+      // 실제 사진의 황토색 마사토 모래 운동장
+      ctx.fillStyle = '#e4be8c';
+      ctx.fillRect(235, 360, 420, 520);
+      // 운동장 백색 석회 라인
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(250, 375, 390, 490);
+      // 축구장 센터 서클
+      ctx.beginPath();
+      ctx.arc(445, 620, 45, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 스타홀 앞 주차장 및 진입 아스팔트
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(665, 360, 230, 420);
+
+      // 흰색 주차 구획선
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      for (let y = 380; y < 740; y += 30) {
+        ctx.strokeRect(675, y, 45, 22);
+      }
+
+      // 우레탄 농구장 (스타홀 남쪽)
+      ctx.fillStyle = '#1d4ed8'; // 파란 우레탄 코트
+      ctx.fillRect(480, 895, 205, 115);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(488, 903, 189, 99);
+      ctx.beginPath();
+      ctx.arc(582, 952, 22, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 동쪽 감골로 도로
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(930, 0);
+      ctx.lineTo(1024, 0);
+      ctx.lineTo(1024, 1024);
+      ctx.lineTo(845, 1024);
+      ctx.closePath();
+      ctx.fill();
+
+      // 황색 복선 중앙선
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(972, 0); ctx.lineTo(888, 1024);
+      ctx.stroke();
+
+      // 횡단보도 (흰색 스트라이프)
+      ctx.fillStyle = '#ffffff';
+      for (let y = 450; y < 560; y += 18) {
+        ctx.fillRect(915 - (y * 0.08), y, 75, 10);
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    // --- 4. 게임 상태 관리 ---
+    const gameState = {
+      currentWeapon: 'bomb',
+      score: 0,
+      hits: 0,
+      totalHealth: 0,
+      initialHealth: 0,
+      showTags: true,
+      isNight: false,
+      gameOver: false,
+      timeScale: 1.0,
+      isPointerDown: false
+    };
+
+    let schoolBlocks = [];
+    let physicsDebris = [];
+    let smokeParticles = [];
+    let movingCars = [];
+    let students = [];
+    let flagMesh = null;
+    let animatedVisuals = [];
+    let clickableMeshes = [];
+    let buildingLabels = [];
+
+    const campusGroup = new THREE.Group();
+    scene.add(campusGroup);
+
+    // --- 5. 리얼 시곡중학교 3D 정밀 건축 모델링 ---
+    function buildSigokCampus() {
+      // 초기화
+      while (campusGroup.children.length > 0) {
+        campusGroup.remove(campusGroup.children[0]);
+      }
+      schoolBlocks = [];
+      physicsDebris = [];
+      smokeParticles = [];
+      movingCars = [];
+      students = [];
+      flagMesh = null;
+      animatedVisuals = [];
+      clickableMeshes = [];
+      buildingLabels = [];
+      document.getElementById('tags-container').innerHTML = '';
+      gameState.gameOver = false;
+      gameState.score = 0;
+      gameState.hits = 0;
+      document.getElementById('victory-modal').classList.add('hidden');
+      document.getElementById('victory-modal').classList.remove('opacity-100');
+
+      // 1) 고해상도 지형 베이스보드
+      const groundGeo = new THREE.BoxGeometry(280, 5, 280);
+      const groundMat = new THREE.MeshStandardMaterial({
+        map: createRealSatelliteGroundTexture(),
+        roughness: 0.8,
+        metalness: 0.1
+      });
+      const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+      groundMesh.position.set(0, -2.5, 0);
+      groundMesh.receiveShadow = true;
+      campusGroup.add(groundMesh);
+      clickableMeshes.push(groundMesh);
+
+      // 공유 재질
+      const facadeTex = createRealisticFacadeTexture();
+      const roofTex = createRoofUrethaneTexture();
+      const gymRoofTex = createGymRoofTexture();
+
+      const blockGeo = new THREE.BoxGeometry(6.0, 4.4, 6.2);
+
+      const brickBlockMat = new THREE.MeshStandardMaterial({
+        map: facadeTex,
+        roughness: 0.65,
+        metalness: 0.2
+      });
+
+      const roofBlockMat = new THREE.MeshStandardMaterial({
+        map: roofTex,
+        roughness: 0.7,
+        metalness: 0.1
+      });
+
+      let totalHP = 0;
+
+      // 2) 실제 사진 속 5층 본관 교사 (적벽돌 + 베이지 기둥 + 창틀 + 녹색 옥상 우레탄)
+      const rows = 5;   // 5층
+      const cols = 22;  // 동서 폭
+      const depths = 2; // 남북 두께
+      const startX = -65;
+      const startZ = -82;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          for (let d = 0; d < depths; d++) {
+            const bx = startX + c * 6.0;
+            const by = r * 4.4 + 2.2;
+            const bz = startZ + d * 6.2;
+
+            const isRoof = (r === rows - 1);
+            const curMat = isRoof ? roofBlockMat.clone() : brickBlockMat.clone();
+            const hp = isRoof ? 130 : 100;
+
+            const mesh = new THREE.Mesh(blockGeo, curMat);
+            mesh.position.set(bx, by, bz);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            const bData = { mesh, hp, maxHp: hp, name: '본관 교실', origPos: mesh.position.clone() };
+            mesh.userData = bData;
+            campusGroup.add(mesh);
+            schoolBlocks.push(bData);
+            clickableMeshes.push(mesh);
+            totalHP += hp;
+          }
+        }
+      }
+
+      // 3) 본관 옥탑 엘리베이터 기계실 & 환기설비 (실제 사진 디테일)
+      createRooftopStructures(startX, rows, startZ);
+
+      // 4) 1층 중앙 출입구 필로티 현관 및 계단
+      createMainEntrance(startX, cols, startZ);
+
+      // 5) 서관 'ㄱ'자형 날개동 (남쪽으로 꺾여 내려오는 5층 교사)
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < 3; c++) {
+          for (let d = 0; d < 6; d++) {
+            const bx = startX + c * 6.0;
+            const by = r * 4.4 + 2.2;
+            const bz = (startZ + 12.4) + (d + 1) * 6.2;
+
+            const isRoof = (r === rows - 1);
+            const curMat = isRoof ? roofBlockMat.clone() : brickBlockMat.clone();
+            const hp = isRoof ? 130 : 100;
+
+            const mesh = new THREE.Mesh(blockGeo, curMat);
+            mesh.position.set(bx, by, bz);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            const bData = { mesh, hp, maxHp: hp, name: '서관 날개동', origPos: mesh.position.clone() };
+            mesh.userData = bData;
+            campusGroup.add(mesh);
+            schoolBlocks.push(bData);
+            clickableMeshes.push(mesh);
+            totalHP += hp;
+          }
+        }
+      }
+
+      // 6) 동관 푸른색 아치 돔 지붕동
+      const archStartX = startX + cols * 6.0 + 3;
+      for (let r = 0; r < rows - 1; r++) {
+        for (let c = 0; c < 5; c++) {
+          for (let d = 0; d < 2; d++) {
+            const mesh = new THREE.Mesh(blockGeo, brickBlockMat.clone());
+            mesh.position.set(archStartX + c * 6.0, r * 4.4 + 2.2, startZ + d * 6.2);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            const bData = { mesh, hp: 110, maxHp: 110, name: '동관 교사', origPos: mesh.position.clone() };
+            mesh.userData = bData;
+            campusGroup.add(mesh);
+            schoolBlocks.push(bData);
+            clickableMeshes.push(mesh);
+            totalHP += 110;
+          }
+        }
+      }
+      // 푸른색 배럴 볼트(Barrel Vault) 돔 지붕
+      const archGeo = new THREE.CylinderGeometry(8.5, 8.5, 30, 24, 1, false, 0, Math.PI);
+      const archMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.35, metalness: 0.3 });
+      const archMesh = new THREE.Mesh(archGeo, archMat);
+      archMesh.rotation.z = Math.PI / 2;
+      archMesh.position.set(archStartX + 12, (rows - 1) * 4.4 + 3.2, startZ + 3.1);
+      archMesh.castShadow = true;
+      campusGroup.add(archMesh);
+
+      // 7) 실제 사진 속 핵심: 청기와 사령대(조회대) & 하늘색 차양 스탠드
+      createPavilionAndStands();
+
+      // 8) 체육관 "스타홀" (은회색 샌드위치 패널 골판 지붕)
+      createStarHallGym(gymRoofTex);
+      // 9) 캠퍼스 실제 조경수(나무), 축구 골대, 농구 골대, 차량, 학생, 국기게양대
+      createTreesAndProps();
+      createLiveTrafficAndStudents();
+
+      // 10) 3D SMASH 네임태그 등록
+      addBuildingTag('시곡중학교 본관', new THREE.Vector3(1, rows * 4.4 + 10, startZ + 6));
+      addBuildingTag('청기와 사령대', new THREE.Vector3(-6, 15, -28));
+      addBuildingTag('스타홀 (체육관)', new THREE.Vector3(56, 25, 30));
+      addBuildingTag('서관 날개동', new THREE.Vector3(startX + 6, rows * 4.4 + 10, startZ + 32));
+      addBuildingTag('마사토 모래 운동장', new THREE.Vector3(-10, 2, 25));
+      addBuildingTag('우레탄 농구코트', new THREE.Vector3(26, 2, 92));
+      addBuildingTag('감골로', new THREE.Vector3(108, 3, 40));
+
+      gameState.initialHealth = totalHP;
+      gameState.totalHealth = totalHP;
+      updateUI();
+    }
+
+    // 본관 옥상 계단실 및 실외기
+    function createRooftopStructures(startX, rows, startZ) {
+      const topY = rows * 4.4;
+      const stairGeo = new THREE.BoxGeometry(10, 6, 9);
+      const stairMat = new THREE.MeshStandardMaterial({ color: 0xa84835, roughness: 0.7 });
+
+      // 좌/우 옥탑 계단실 2기
+      const stair1 = new THREE.Mesh(stairGeo, stairMat);
+      stair1.position.set(startX + 28, topY + 3, startZ + 6);
+      stair1.castShadow = true;
+      campusGroup.add(stair1);
+
+      const stair2 = new THREE.Mesh(stairGeo, stairMat);
+      stair2.position.set(startX + 88, topY + 3, startZ + 6);
+      stair2.castShadow = true;
+      campusGroup.add(stair2);
+
+      // 옥상 난간 (Parapet)
+      const paraMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.8 });
+      const p1 = new THREE.Mesh(new THREE.BoxGeometry(132, 1.2, 0.8), paraMat);
+      p1.position.set(startX + 65, topY + 0.6, startZ + 12.3);
+      campusGroup.add(p1);
+
+      // 에어컨 실외기 쿨링 유닛
+      const acGeo = new THREE.BoxGeometry(3.5, 2.2, 3.5);
+      const acMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.5 });
+      for (let i = 0; i < 4; i++) {
+        const ac = new THREE.Mesh(acGeo, acMat);
+        ac.position.set(startX + 45 + i * 8, topY + 1.1, startZ + 3);
+        ac.castShadow = true;
+        campusGroup.add(ac);
+      }
+
+      // 실제 사진 속 본관 정면 상단 중앙 '시곡중학교 원형 교표(엠블럼)'
+      const emblemGeo = new THREE.CylinderGeometry(2.6, 2.6, 0.8, 24);
+      const emblemMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, metalness: 0.6, roughness: 0.3 });
+      const emblem = new THREE.Mesh(emblemGeo, emblemMat);
+      emblem.rotation.x = Math.PI / 2;
+      emblem.position.set(startX + 63, topY - 1.5, startZ + 12.6);
+      campusGroup.add(emblem);
+    }
+
+    // 1층 중앙 출입구 필로티 현관
+    function createMainEntrance(startX, cols, startZ) {
+      const midX = startX + (cols * 6.0) / 2;
+      const canopyGeo = new THREE.BoxGeometry(16, 1.2, 8);
+      const canopyMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
+      const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+      canopy.position.set(midX - 3, 5.0, startZ + 12.5);
+      canopy.castShadow = true;
+      campusGroup.add(canopy);
+
+      // 현관 원형 기둥 4개
+      const colGeo = new THREE.CylinderGeometry(0.5, 0.5, 4.5, 16);
+      const colMat = new THREE.MeshStandardMaterial({ color: 0xf1e7d8 });
+      [-6, 6].forEach(ox => {
+        const pillar = new THREE.Mesh(colGeo, colMat);
+        pillar.position.set(midX - 3 + ox, 2.25, startZ + 15.5);
+        pillar.castShadow = true;
+        campusGroup.add(pillar);
+      });
+    }
+
+    // 실제 사진 속 청기와 팔작지붕 사령대 & 하늘색 차양 스탠드
+    function createPavilionAndStands() {
+      const centerZ = -28;
+      const centerX = -6;
+
+      // 1) 화강암 2단 기단 및 중앙 돌계단
+      const baseGeo = new THREE.BoxGeometry(18, 2.8, 14);
+      const baseMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.85 });
+      const base = new THREE.Mesh(baseGeo, baseMat);
+      base.position.set(centerX, 1.4, centerZ);
+      base.castShadow = true;
+      // 2) 실제 사진과 일치하는 청색 팔작 기와지붕 (2단 겹처마 및 용마루 디테일)
+      const roofMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.22, metalness: 0.25 });
+      const lowerRoofGeo = new THREE.BoxGeometry(19.5, 1.2, 15.5);
+      const lowerRoof = new THREE.Mesh(lowerRoofGeo, roofMat);
+      lowerRoof.position.set(centerX, 9.3, centerZ);
+      lowerRoof.castShadow = true;
+      campusGroup.add(lowerRoof);
+
+      const roofGeo = new THREE.ConeGeometry(13.5, 4.8, 4);
+      const roof = new THREE.Mesh(roofGeo, roofMat);
+      roof.rotation.y = Math.PI / 4;
+      roof.position.set(centerX, 11.8, centerZ);
+      roof.castShadow = true;
+      campusGroup.add(roof);
+
+      // 용마루 상단 장식
+      const ridgeBar = new THREE.Mesh(new THREE.BoxGeometry(10, 0.9, 1.2), roofMat);
+      ridgeBar.position.set(centerX, 13.6, centerZ);
+      campusGroup.add(ridgeBar);
+
+      // 청기와 사령대 현판
+      const signBoard = new THREE.Mesh(
+        new THREE.BoxGeometry(4.2, 1.3, 0.4),
+        new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.6 })
+      );
+      signBoard.position.set(centerX, 8.8, centerZ + 7.6);
+      campusGroup.add(signBoard);
+
+      const roofData = { mesh: roof, hp: 160, maxHp: 160, name: '청기와 사령대', origPos: roof.position.clone() };
+      roof.userData = roofData;
+      schoolBlocks.push(roofData);
+      clickableMeshes.push(roof);
+
+      // 3) 좌우 양익 라운드형 하늘색 차양 스탠드 캐노피
+      const canMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.9,
+        roughness: 0.2
+      });
+      const canGeo = new THREE.CylinderGeometry(4.8, 4.8, 40, 20, 1, false, 0, Math.PI);
+      
+      const leftCan = new THREE.Mesh(canGeo, canMat);
+      leftCan.rotation.z = Math.PI / 2;
+      leftCan.position.set(centerX - 33, 4.5, centerZ);
+      leftCan.castShadow = true;
+      campusGroup.add(leftCan);
+
+      const rightCan = new THREE.Mesh(canGeo, canMat);
+      rightCan.rotation.z = Math.PI / 2;
+      rightCan.position.set(centerX + 33, 4.5, centerZ);
+      rightCan.castShadow = true;
+      campusGroup.add(rightCan);
+
+      // 스탠드 벤치 좌석단
+      const seatGeo = new THREE.BoxGeometry(36, 1.6, 6);
+      const seatMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.9 });
+      const leftSeat = new THREE.Mesh(seatGeo, seatMat);
+      leftSeat.position.set(centerX - 33, 0.8, centerZ);
+      campusGroup.add(leftSeat);
+      const rightSeat = new THREE.Mesh(seatGeo, seatMat);
+      rightSeat.position.set(centerX + 33, 0.8, centerZ);
+      campusGroup.add(rightSeat);
+    }
+
+    // 실제 사진 속 스타홀(체육관 강당)
+    function createStarHallGym(gymRoofTex) {
+      const cols = 5;
+      const rows = 3;
+      const depths = 10;
+      const startX = 42;
+      const startZ = 2;
+
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 });
+      const roofMat = new THREE.MeshStandardMaterial({
+        map: gymRoofTex,
+        roughness: 0.4,
+        metalness: 0.4
+      });
+      const bGeo = new THREE.BoxGeometry(6.4, 5.6, 6.4);
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          for (let d = 0; d < depths; d++) {
+            const bx = startX + c * 6.6;
+            const by = r * 5.8 + 2.9;
+            const bz = startZ + d * 6.6;
+
+            const isRoof = (r === rows - 1);
+            const mesh = new THREE.Mesh(bGeo, isRoof ? roofMat.clone() : wallMat.clone());
+            mesh.position.set(bx, by, bz);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            const hp = 180;
+            const bData = { mesh, hp, maxHp: hp, name: '스타홀 강당', origPos: mesh.position.clone() };
+            mesh.userData = bData;
+            campusGroup.add(mesh);
+            schoolBlocks.push(bData);
+            clickableMeshes.push(mesh);
+          }
+        }
+      }
+
+      // 스타홀 상단 박공형 박스 릿지
+      const ridgeGeo = new THREE.BoxGeometry(cols * 6.6 + 2, 2.5, depths * 6.6 + 2);
+      const ridgeMesh = new THREE.Mesh(ridgeGeo, roofMat);
+      ridgeMesh.position.set(startX + 13.2, rows * 5.8 + 1.25, startZ + 29.7);
+      ridgeMesh.castShadow = true;
+      campusGroup.add(ridgeMesh);
+    }
+
+    // 캠퍼스 나무, 숲, 축구/농구 골대
+    function createTreesAndProps() {
+      // 1) 서쪽 울창한 숲 (위성 사진)
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.9 });
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.8 });
+      const tGeo = new THREE.CylinderGeometry(0.6, 0.9, 5, 8);
+      const fGeo = new THREE.DodecahedronGeometry(3.6, 1);
+
+      for (let i = 0; i < 45; i++) {
+        const tx = -115 + Math.random() * 38;
+        const tz = -110 + Math.random() * 220;
+        const tree = new THREE.Group();
+        const trunk = new THREE.Mesh(tGeo, trunkMat);
+        trunk.position.y = 2.5;
+        trunk.castShadow = true;
+        const foliage = new THREE.Mesh(fGeo, leafMat);
+        foliage.position.y = 6.5;
+        foliage.scale.set(1 + Math.random() * 0.4, 1 + Math.random() * 0.4, 1 + Math.random() * 0.4);
+        foliage.castShadow = true;
+        tree.add(trunk, foliage);
+        tree.position.set(tx, 0, tz);
+        campusGroup.add(tree);
+      }
+
+      // 2) 본관 앞마당 조경 소나무
+      for (let i = 0; i < 6; i++) {
+        const tree = new THREE.Group();
+        const trunk = new THREE.Mesh(tGeo, trunkMat);
+        trunk.position.y = 2.5;
+        const foliage = new THREE.Mesh(fGeo, new THREE.MeshStandardMaterial({ color: 0x15803d }));
+        foliage.position.y = 6.2;
+        tree.add(trunk, foliage);
+        tree.position.set(-45 + i * 16, 0, -42);
+        campusGroup.add(tree);
+      }
+
+      // 3) 운동장 축구 골대 2기
+      const goalMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+      const goal1 = new THREE.Mesh(new THREE.BoxGeometry(14, 6, 4), goalMat);
+      goal1.position.set(-10, 3, -12);
+      campusGroup.add(goal1);
+
+      const goal2 = new THREE.Mesh(new THREE.BoxGeometry(14, 6, 4), goalMat);
+      goal2.position.set(-10, 3, 62);
+      campusGroup.add(goal2);
+
+      // 4) 태극기 국기게양대 (실제 사진 속 사령대 좌측 위치)
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 });
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.25, 18, 12), poleMat);
+      pole.position.set(-22, 9, -38);
+      pole.castShadow = true;
+      campusGroup.add(pole);
+
+      const flagGeo = new THREE.PlaneGeometry(4.5, 3.0, 12, 8);
+      const flagCanvas = document.createElement('canvas');
+      flagCanvas.width = 128; flagCanvas.height = 85;
+      const fctx = flagCanvas.getContext('2d');
+      fctx.fillStyle = '#ffffff'; fctx.fillRect(0, 0, 128, 85);
+      fctx.fillStyle = '#dc2626'; fctx.beginPath(); fctx.arc(64, 42, 20, Math.PI, 0); fctx.fill();
+      fctx.fillStyle = '#1d4ed8'; fctx.beginPath(); fctx.arc(64, 42, 20, 0, Math.PI); fctx.fill();
+      const flagTex = new THREE.CanvasTexture(flagCanvas);
+      const flagMat = new THREE.MeshStandardMaterial({ map: flagTex, side: THREE.DoubleSide });
+      flagMesh = new THREE.Mesh(flagGeo, flagMat);
+      flagMesh.position.set(-19.6, 16.2, -38);
+      flagMesh.castShadow = true;
+      campusGroup.add(flagMesh);
+
+      // 5) 교직원 주차 차량들 (스타홀 주변 주차선)
+      const carColors = [0xf8fafc, 0x1e293b, 0x3b82f6, 0x64748b, 0xdc2626];
+      for (let i = 0; i < 6; i++) {
+        const car = create3DVehicle(carColors[i % carColors.length], false);
+        car.position.set(42, 1.2, -26 - i * 7.5);
+        car.rotation.y = Math.PI / 2;
+        campusGroup.add(car);
+        const cData = { mesh: car, hp: 60, maxHp: 60, name: '주차 차량', origPos: car.position.clone() };
+        car.userData = cData;
+        schoolBlocks.push(cData);
+        clickableMeshes.push(car);
+      }
+    }
+
+    // 3D 자동차/버스 모델 생성기
+    function create3DVehicle(colorHex, isBus = false) {
+      const carGroup = new THREE.Group();
+      const bodyW = isBus ? 4.4 : 3.6;
+      const bodyH = isBus ? 3.8 : 1.8;
+      const bodyL = isBus ? 11.5 : 6.8;
+
+      const bodyGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyL);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.25, metalness: 0.4 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.castShadow = true;
+      carGroup.add(body);
+
+      if (!isBus) {
+        const roofGeo = new THREE.BoxGeometry(bodyW * 0.85, 1.3, bodyL * 0.55);
+        const roofMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, metalness: 0.8 });
+        const roof = new THREE.Mesh(roofGeo, roofMat);
+        roof.position.y = 1.4;
+        carGroup.add(roof);
+      }
+
+      // 헤드라이트
+      const lightGeo = new THREE.BoxGeometry(0.8, 0.5, 0.2);
+      const lightMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+      const hl1 = new THREE.Mesh(lightGeo, lightMat);
+      hl1.position.set(-bodyW * 0.3, 0, bodyL / 2 + 0.05);
+      const hl2 = new THREE.Mesh(lightGeo, lightMat);
+      hl2.position.set(bodyW * 0.3, 0, bodyL / 2 + 0.05);
+      carGroup.add(hl1, hl2);
+
+      return carGroup;
+    }
+
+    // 감골로 주행 차량 & 운동장 학생 피규어 생성
+    function createLiveTrafficAndStudents() {
+      const trafficColors = [0xfacc15, 0xffffff, 0x38bdf8, 0xef4444, 0x10b981, 0xe2e8f0];
+      for (let i = 0; i < 6; i++) {
+        const isBus = (i === 0 || i === 3); // 노란 학원버스 및 시내버스 포함
+        const vMesh = create3DVehicle(trafficColors[i], isBus);
+        const dir = i % 2 === 0 ? 1 : -1;
+        const zPos = -120 + i * 45;
+        const xOffset = dir === 1 ? 104 : 114;
+        vMesh.position.set(xOffset - zPos * 0.08, isBus ? 2.0 : 1.2, zPos);
+        if (dir === -1) vMesh.rotation.y = Math.PI;
+        campusGroup.add(vMesh);
+
+        movingCars.push({
+          mesh: vMesh,
+          dir: dir,
+          speed: 22 + Math.random() * 14,
+          baseX: xOffset,
+          isBus: isBus,
+          alive: true
+        });
+      }
+
+      // 운동장 축구/체육 활동 학생들
+      const shirtMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+      const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a });
+      for (let i = 0; i < 18; i++) {
+        const st = new THREE.Group();
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.8, 0.8), shirtMat);
+        torso.position.y = 1.6;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), new THREE.MeshStandardMaterial({ color: 0xfde68a }));
+        head.position.y = 2.9;
+        const legs = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.7), pantsMat);
+        legs.position.y = 0.6;
+        st.add(torso, head, legs);
+
+        const sx = -45 + Math.random() * 65;
+        const sz = -5 + Math.random() * 65;
+        st.position.set(sx, 0, sz);
+        campusGroup.add(st);
+
+        students.push({
+          mesh: st,
+          originX: sx,
+          originZ: sz,
+          phase: Math.random() * Math.PI * 2,
+          speed: 2 + Math.random() * 3,
+          alive: true
+        });
+      }
+    }
+
+    // --- 6. 3D 네임태그 오버레이 ---
+    function addBuildingTag(text, worldPos) {
+      const el = document.createElement('div');
+      el.className = 'building-tag';
+      el.innerText = text;
+      document.getElementById('tags-container').appendChild(el);
+      buildingLabels.push({ element: el, pos: worldPos });
+    }
+
+    function updateTagsPosition() {
+      const tempV = new THREE.Vector3();
+      buildingLabels.forEach(tag => {
+        if (!gameState.showTags) {
+          tag.element.style.display = 'none';
+          return;
+        }
+        tag.element.style.display = 'block';
+        tempV.copy(tag.pos);
+        tempV.project(camera);
+
+        if (tempV.z > 1) {
+          tag.element.style.opacity = '0';
+          return;
+        }
+
+        const x = (tempV.x * 0.5 + 0.5) * window.innerWidth;
+        const y = (-(tempV.y * 0.5) + 0.5) * window.innerHeight;
+        tag.element.style.left = `${x}px`;
+        tag.element.style.top = `${y}px`;
+        tag.element.style.opacity = '1';
+      });
+    }
+
+    // --- 7. SMASH 6종 무기 정밀 타격 로직 ---
+    function executeWeaponAttack(hitPoint) {
+      gameState.hits++;
+
+      switch (gameState.currentWeapon) {
+        case 'bomb':
+          attackBomb(hitPoint);
+          break;
+        case 'bat':
+          attackBat(hitPoint);
+          break;
+        case 'laser':
+          attackLaser(hitPoint);
+          break;
+        case 'meteor':
+          attackMeteor(hitPoint);
+          break;
+        case 'earthquake':
+          attackEarthquake(hitPoint);
+          break;
+        case 'nuke':
+          attackNuke(hitPoint);
+          break;
+      }
+    }
+
+    // 1) 폭탄
+    function attackBomb(pos) {
+      sound.playBomb();
+      shakeScreen('light');
+      createBlastSphere(pos, 32, 0xf97316);
+      createScorchDecal(pos, 16);
+      spawnSmokePlume(pos, 12, 0x334155);
+      damageRadius(pos, 28, 130, 55);
+    }
+
+    // 2) 배트
+    function attackBat(pos) {
+      sound.playBat();
+      shakeScreen('light');
+
+      const batGroup = new THREE.Group();
+      batGroup.position.copy(pos).add(new THREE.Vector3(0, 14, 0));
+
+      const batGeo = new THREE.CylinderGeometry(2.8, 1.0, 36, 16);
+      const batMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.25, metalness: 0.2 });
+      const batMesh = new THREE.Mesh(batGeo, batMat);
+      batMesh.rotation.z = Math.PI / 2.2;
+      batMesh.position.set(16, 0, 0);
+      batGroup.add(batMesh);
+      scene.add(batGroup);
+
+      // 배트 타격 충격파 링
+      createCraterRing(pos, 28, 0x60a5fa);
+
+      animatedVisuals.push({
+        type: 'batSwing',
+        obj: batGroup,
+        time: 0,
+        duration: 0.25
+      });
+
+      damageRadius(pos, 26, 210, 115, new THREE.Vector3(1, 0.75, -0.4).normalize());
+    }
+
+    // 3) 레이저 (클릭 및 드래그 연속 절단 지원)
+    function attackLaser(pos) {
+      sound.playLaser();
+      shakeScreen('light');
+
+      // 외곽 발광 코어 + 중심 백색 고열 빔
+      const beamGroup = new THREE.Group();
+      const coreGeo = new THREE.CylinderGeometry(0.9, 0.9, 340, 16);
+      const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const glowGeo = new THREE.CylinderGeometry(2.4, 2.4, 340, 16);
+      const glowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.65 });
+      beamGroup.add(new THREE.Mesh(coreGeo, coreMat), new THREE.Mesh(glowGeo, glowMat));
+      beamGroup.position.set(pos.x, pos.y + 170, pos.z);
+      scene.add(beamGroup);
+
+      createScorchDecal(pos, 7.5, 0x0284c7);
+      spawnSmokePlume(pos, 5, 0x38bdf8);
+
+      animatedVisuals.push({
+        type: 'fadeGroup',
+        group: beamGroup,
+        time: 0,
+        duration: 0.22
+      });
+
+      damageRadius(pos, 18, 260, 42);
+    }
+
+    // 4) 운석
+    function attackMeteor(pos) {
+      sound.playMeteor();
+      shakeScreen('heavy');
+
+      const meteorGeo = new THREE.DodecahedronGeometry(7.5, 1);
+      const meteorMat = new THREE.MeshStandardMaterial({
+        color: 0x7f1d1d,
+        emissive: 0xea580c,
+        emissiveIntensity: 0.85,
+        roughness: 0.9
+      });
+      const meteor = new THREE.Mesh(meteorGeo, meteorMat);
+      const startP = new THREE.Vector3(pos.x + 45, pos.y + 150, pos.z - 45);
+      meteor.position.copy(startP);
+      scene.add(meteor);
+
+      animatedVisuals.push({
+        type: 'meteorFall',
+        mesh: meteor,
+        start: startP,
+        target: pos,
+        time: 0,
+        duration: 0.34,
+        onImpact: () => {
+          sound.playBomb();
+          triggerHitStop(0.22, 0.18);
+          createBlastSphere(pos, 52, 0xf97316);
+          createBlastSphere(pos, 36, 0xfef08a);
+          createCraterRing(pos, 46, 0xef4444);
+          createScorchDecal(pos, 26);
+          spawnSmokePlume(pos, 26, 0x1e293b);
+          damageRadius(pos, 46, 320, 82);
+        }
+      });
+    }
+
+    // 5) 지진
+    function attackEarthquake(pos) {
+      sound.playEarthquake();
+      shakeScreen('heavy');
+      createCraterRing(pos, 72, 0x10b981);
+      createCraterRing(pos, 48, 0xfacc15);
+      createScorchDecal(pos, 32, 0x0f172a);
+      spawnSmokePlume(pos, 20, 0x78350f);
+      damageRadius(pos, 64, 175, 40, new THREE.Vector3(0, 1, 0));
+    }
+
+    // 6) 핵폭탄
+    function attackNuke(pos) {
+      sound.playNuke();
+      shakeScreen('heavy');
+      triggerHitStop(0.15, 0.35);
+
+      const flash = document.getElementById('nuke-flash');
+      flash.style.opacity = '0.95';
+      setTimeout(() => { flash.style.opacity = '0'; }, 380);
+
+      createBlastSphere(pos, 115, 0xffffff);
+      createBlastSphere(pos, 85, 0xf59e0b);
+      createCraterRing(pos, 130, 0xef4444);
+      createScorchDecal(pos, 65, 0x09090b);
+      spawnSmokePlume(pos, 55, 0xf97316);
+      damageRadius(pos, 120, 850, 120);
+    }
+
+    // 슬로우 모션 타격 연출 (Hit-Stop)
+    function triggerHitStop(scale, durationSec) {
+      gameState.timeScale = scale;
+      setTimeout(() => {
+        gameState.timeScale = 1.0;
+      }, durationSec * 1000);
+    }
+
+    // 화면 흔들림 (Shake) 연출
+    function shakeScreen(intensity = 'light') {
+      const cls = intensity === 'heavy' ? 'shake-heavy' : 'shake-light';
+      document.body.classList.remove('shake-light', 'shake-heavy');
+      void document.body.offsetWidth; // 리플로우 강제
+      document.body.classList.add(cls);
+      setTimeout(() => {
+        document.body.classList.remove(cls);
+      }, intensity === 'heavy' ? 600 : 280);
+    }
+
+    // 3D 폭발 반구/구체 이펙트 생성
+    function createBlastSphere(pos, maxRadius, colorHex) {
+      const geo = new THREE.SphereGeometry(1, 24, 24);
+      const mat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.9
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(pos);
+      scene.add(mesh);
+
+      animatedVisuals.push({
+        type: 'expandSphere',
+        mesh: mesh,
+        currentR: 2,
+        maxR: maxRadius,
+        growth: maxRadius * 3.8,
+        opacity: 0.9
+      });
+    }
+
+    // 바닥 충격파 링 이펙트 생성
+    function createCraterRing(pos, maxRadius, colorHex) {
+      const geo = new THREE.RingGeometry(0.6, 1.0, 32);
+      const mat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(pos.x, 0.4, pos.z);
+      scene.add(mesh);
+
+      animatedVisuals.push({
+        type: 'expandRing',
+        mesh: mesh,
+        currentR: 2,
+        maxR: maxRadius,
+        growth: maxRadius * 3.5,
+        opacity: 0.95
+      });
+    }
+
+    // 잔여 체력 및 파괴율 계산, UI 업데이트
+    function recalculateHealth() {
+      let curHP = 0;
+      for (let i = 0; i < schoolBlocks.length; i++) {
+        if (schoolBlocks[i].hp > 0) {
+          curHP += schoolBlocks[i].hp;
+        }
+      }
+      gameState.totalHealth = curHP;
+      updateUI();
+
+      if (curHP <= 0 && !gameState.gameOver && gameState.initialHealth > 0) {
+        gameState.gameOver = true;
+        showVictoryModal();
+      }
+    }
+
+    function updateUI() {
+      const scoreEl = document.getElementById('score-display');
+      const rateEl = document.getElementById('destruction-rate');
+      if (scoreEl) scoreEl.innerText = gameState.score.toLocaleString();
+
+      let ratio = 0;
+      if (gameState.initialHealth > 0) {
+        ratio = Math.min(100, Math.max(0, Math.round((1 - gameState.totalHealth / gameState.initialHealth) * 100)));
+      }
+      if (rateEl) rateEl.innerText = `${ratio}%`;
+    }
+
+    function showVictoryModal() {
+      const modal = document.getElementById('victory-modal');
+      const finalScore = document.getElementById('final-score');
+      const finalHits = document.getElementById('final-hits');
+      if (finalScore) finalScore.innerText = gameState.score.toLocaleString();
+      if (finalHits) finalHits.innerText = gameState.hits.toLocaleString();
+      if (modal) {
+        modal.classList.remove('hidden');
+        setTimeout(() => {
+          modal.classList.add('opacity-100');
+        }, 30);
+      }
+    }
+
+    // 바닥 탄흔 크레이터 데칼 생성
+    function createScorchDecal(pos, radius, colorHex = 0x09090b) {
+      const decalGeo = new THREE.CircleGeometry(radius, 24);
+      const decalMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false
+      });
+      const decal = new THREE.Mesh(decalGeo, decalMat);
+      decal.rotation.x = -Math.PI / 2;
+      decal.position.set(pos.x, 0.15 + Math.random() * 0.15, pos.z);
+      campusGroup.add(decal);
+    }
+
+    // 입체 폭연/화염 연기 입자 기둥
+    function spawnSmokePlume(pos, count, colorHex) {
+      const geo = new THREE.DodecahedronGeometry(2.2, 0);
+      for (let i = 0; i < count; i++) {
+        const isFire = Math.random() < 0.38;
+        const mat = new THREE.MeshBasicMaterial({
+          color: isFire ? 0xf97316 : colorHex,
+          transparent: true,
+          opacity: 0.85
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos).add(new THREE.Vector3(
+          (Math.random() - 0.5) * 14,
+          1 + Math.random() * 6,
+          (Math.random() - 0.5) * 14
+        ));
+        const s = 0.7 + Math.random() * 1.6;
+        mesh.scale.set(s, s, s);
+        scene.add(mesh);
+
+        smokeParticles.push({
+          mesh: mesh,
+          vel: new THREE.Vector3(
+            (Math.random() - 0.5) * 16,
+            14 + Math.random() * 26,
+            (Math.random() - 0.5) * 16
+          ),
+          growRate: 1.5 + Math.random() * 2.0,
+          opacity: 0.85,
+          fadeSpeed: 0.55 + Math.random() * 0.5
+        });
+      }
+    }
+
+    // --- 8. 물리 파편 및 데미지 시스템 ---
+    function damageRadius(pos, radius, damage, knockbackPower, forcedDir = null) {
+      // 주행 차량 및 학생 날리기
+      movingCars.forEach(car => {
+        if (car.alive && car.mesh.position.distanceTo(pos) <= radius) {
+          car.alive = false;
+          createDebris(car.mesh.position, new THREE.Color(0xfacc15), new THREE.Vector3(0, 1, 0), knockbackPower * 1.1);
+          campusGroup.remove(car.mesh);
+          gameState.score += 1200;
+        }
+      });
+
+      students.forEach(st => {
+        if (st.alive && st.mesh.position.distanceTo(pos) <= radius) {
+          st.alive = false;
+          createDebris(st.mesh.position, new THREE.Color(0xffffff), new THREE.Vector3(0, 1, 0), knockbackPower);
+          campusGroup.remove(st.mesh);
+          gameState.score += 500;
+        }
+      });
+
+      for (let i = 0; i < schoolBlocks.length; i++) {
+        const b = schoolBlocks[i];
+        if (b.hp <= 0) continue;
+
+        const dist = b.mesh.position.distanceTo(pos);
+        if (dist <= radius) {
+          const falloff = 1 - (dist / radius);
+          b.hp -= damage * falloff;
+
+          if (b.hp > 0) {
+            if (b.mesh.material && b.mesh.material.color) {
+              b.mesh.material.color.lerp(new THREE.Color(0x18181b), 0.42);
+            }
+            // 피격 시 블록 미세 뒤틀림(균열 표현)
+            b.mesh.rotation.z += (Math.random() - 0.5) * 0.08;
+            b.mesh.rotation.x += (Math.random() - 0.5) * 0.08;
+          } else {
+            campusGroup.remove(b.mesh);
+            const idx = clickableMeshes.indexOf(b.mesh);
+            if (idx > -1) clickableMeshes.splice(idx, 1);
+
+            gameState.score += Math.round(b.maxHp * 15);
+
+            const blastDir = forcedDir ? forcedDir.clone() : new THREE.Vector3().subVectors(b.mesh.position, pos).normalize();
+            blastDir.y += 0.45 + Math.random() * 0.5;
+            blastDir.normalize();
+
+            const debColor = (b.mesh.material && b.mesh.material.color) ? b.mesh.material.color : new THREE.Color(0x9b3d2b);
+            createDebris(b.mesh.position, debColor, blastDir, knockbackPower);
+          }
+        }
+      }
+
+      recalculateHealth();
+    }
+
+    function createDebris(pos, color, dir, power) {
+      const count = 4 + Math.floor(Math.random() * 4);
+      const brickGeo = new THREE.BoxGeometry(2.2, 1.4, 1.8);
+      const glassGeo = new THREE.BoxGeometry(1.6, 1.6, 0.3);
+
+      for (let i = 0; i < count; i++) {
+        const isGlass = Math.random() < 0.28;
+        const mat = isGlass
+          ? new THREE.MeshStandardMaterial({ color: 0x7dd3fc, roughness: 0.1, metalness: 0.8, transparent: true, opacity: 0.8 })
+          : new THREE.MeshStandardMaterial({ color: color, roughness: 0.85 });
+
+        const mesh = new THREE.Mesh(isGlass ? glassGeo : brickGeo, mat);
+        mesh.position.copy(pos).add(new THREE.Vector3(
+          (Math.random() - 0.5) * 2.5,
+          (Math.random() - 0.5) * 2.5,
+          (Math.random() - 0.5) * 2.5
+        ));
+        mesh.castShadow = true;
+        scene.add(mesh);
+
+        const v = dir.clone().multiplyScalar(power * (0.8 + Math.random() * 0.6));
+        v.x += (Math.random() - 0.5) * 22;
+        v.z += (Math.random() - 0.5) * 22;
+
+        physicsDebris.push({
+          mesh: mesh,
+          vel: v,
+          rotVel: new THREE.Vector3(
+            (Math.random() - 0.5) * 0.55,
+            (Math.random() - 0.5) * 0.55,
+            (Math.random() - 0.5) * 0.55
+          ),
+          life: 1.0,
+          decay: 0.011 + Math.random() * 0.012
+        });
+      }
+    }
+    // --- 9. 레이캐스팅 타격 이벤트 (단발 클릭 & 레이저 드래그 절단) ---
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let lastLaserTime = 0;
+
+    function fireAtPointer(e) {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(clickableMeshes, false);
+
+      if (intersects.length > 0) {
+        executeWeaponAttack(intersects[0].point);
+      }
+    }
+
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 좌클릭만 발동
+      gameState.isPointerDown = true;
+      fireAtPointer(e);
+    });
+
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      if (!gameState.isPointerDown) return;
+      if (gameState.currentWeapon === 'laser') {
+        const now = performance.now();
+        if (now - lastLaserTime > 75) {
+          lastLaserTime = now;
+          fireAtPointer(e);
+        }
+      }
+    });
+
+    window.addEventListener('pointerup', () => {
+      gameState.isPointerDown = false;
+    });
+
+    // --- 10. 렌더 루프 및 물리 업데이트 ---
+    const clock = new THREE.Clock();
+    let elapsedTotal = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const rawDt = Math.min(0.05, clock.getDelta());
+      const dt = rawDt * gameState.timeScale;
+      elapsedTotal += dt;
+
+      controls.update();
+      updateTagsPosition();
+
+      // 1) 태극기 바람에 펄럭이는 웨이브 애니메이션
+      if (flagMesh) {
+        const posAttr = flagMesh.geometry.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+          const x = posAttr.getX(i);
+          const wave = Math.sin(x * 1.5 + elapsedTotal * 8) * 0.25 * ((x + 2.25) / 4.5);
+          posAttr.setZ(i, wave);
+        }
+        posAttr.needsUpdate = true;
+      }
+
+      // 2) 감골로 도로 차량 주행 애니메이션
+      movingCars.forEach(car => {
+        if (!car.alive) return;
+        car.mesh.position.z += car.dir * car.speed * dt;
+        if (car.dir === 1 && car.mesh.position.z > 135) car.mesh.position.z = -135;
+        if (car.dir === -1 && car.mesh.position.z < -135) car.mesh.position.z = 135;
+        car.mesh.position.x = car.baseX - car.mesh.position.z * 0.08;
+      });
+
+      // 3) 운동장 학생들 뛰어다니는 애니메이션
+      students.forEach(st => {
+        if (!st.alive) return;
+        const angle = elapsedTotal * st.speed + st.phase;
+        st.mesh.position.x = st.originX + Math.cos(angle) * 4.5;
+        st.mesh.position.z = st.originZ + Math.sin(angle * 0.8) * 4.5;
+        st.mesh.position.y = Math.abs(Math.sin(elapsedTotal * 10 + st.phase)) * 0.6;
+        st.mesh.rotation.y = -angle;
+      });
+
+      // 4) 비주얼 효과 애니메이션
+      for (let i = animatedVisuals.length - 1; i >= 0; i--) {
+        const v = animatedVisuals[i];
+
+        if (v.type === 'batSwing') {
+          v.time += dt;
+          const prog = v.time / v.duration;
+          v.obj.rotation.y = -Math.PI * 1.6 * prog;
+          if (prog >= 1) {
+            scene.remove(v.obj);
+            animatedVisuals.splice(i, 1);
+          }
+        } else if (v.type === 'fadeMesh') {
+          v.time += dt;
+          const prog = v.time / v.duration;
+          v.mesh.material.opacity = (1 - prog) * 0.95;
+          if (prog >= 1) {
+            scene.remove(v.mesh);
+            animatedVisuals.splice(i, 1);
+          }
+        } else if (v.type === 'fadeGroup') {
+          v.time += dt;
+          const prog = v.time / v.duration;
+          v.group.scale.set(1 - prog * 0.7, 1, 1 - prog * 0.7);
+          if (prog >= 1) {
+            scene.remove(v.group);
+            animatedVisuals.splice(i, 1);
+          }
+        } else if (v.type === 'meteorFall') {
+          v.time += dt;
+          const prog = Math.min(1, v.time / v.duration);
+          v.mesh.position.lerpVectors(v.start, v.target, prog);
+          v.mesh.rotation.y += 6.5 * dt;
+          v.mesh.rotation.x += 4.5 * dt;
+          // 운석 낙하 중 화염 연기 꼬리 생성
+          if (Math.random() < 0.65) {
+            spawnSmokePlume(v.mesh.position, 1, 0xf97316);
+          }
+          if (prog >= 1) {
+            scene.remove(v.mesh);
+            if (v.onImpact) v.onImpact();
+            animatedVisuals.splice(i, 1);
+          }
+        } else if (v.type === 'expandSphere') {
+          v.currentR += v.growth * dt;
+          v.opacity -= 1.8 * dt;
+          v.mesh.scale.set(v.currentR, v.currentR, v.currentR);
+          v.mesh.material.opacity = Math.max(0, v.opacity);
+          if (v.opacity <= 0 || v.currentR >= v.maxR) {
+            scene.remove(v.mesh);
+            animatedVisuals.splice(i, 1);
+          }
+        } else if (v.type === 'expandRing') {
+          v.currentR += v.growth * dt;
+          v.opacity -= 1.6 * dt;
+          v.mesh.scale.set(v.currentR, v.currentR, 1);
+          v.mesh.material.opacity = Math.max(0, v.opacity);
+          if (v.opacity <= 0 || v.currentR >= v.maxR) {
+            scene.remove(v.mesh);
+            animatedVisuals.splice(i, 1);
+          }
+        }
+      }
+
+      // 5) 폭연/화염 연기 파티클 상승 업데이트
+      for (let i = smokeParticles.length - 1; i >= 0; i--) {
+        const sp = smokeParticles[i];
+        sp.mesh.position.addScaledVector(sp.vel, dt);
+        sp.mesh.scale.addScalar(sp.growRate * dt);
+        sp.opacity -= sp.fadeSpeed * dt;
+        sp.mesh.material.opacity = Math.max(0, sp.opacity);
+        if (sp.opacity <= 0) {
+          scene.remove(sp.mesh);
+          smokeParticles.splice(i, 1);
+        }
+      }
+
+      // 6) 물리 파편 (벽돌 및 유리창 파편 바운스)
+      for (let i = physicsDebris.length - 1; i >= 0; i--) {
+        const deb = physicsDebris[i];
+        deb.vel.y -= 85 * dt;
+        deb.mesh.position.addScaledVector(deb.vel, dt);
+        deb.mesh.rotation.x += deb.rotVel.x;
+        deb.mesh.rotation.y += deb.rotVel.y;
+
+        if (deb.mesh.position.y <= 0.6) {
+          deb.mesh.position.y = 0.6;
+          deb.vel.y = -deb.vel.y * 0.42;
+          deb.vel.x *= 0.76;
+          deb.vel.z *= 0.76;
+        }
+
+        deb.life -= deb.decay;
+        if (deb.life <= 0) {
+          scene.remove(deb.mesh);
+          physicsDebris.splice(i, 1);
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // --- 11. 무기 선택 및 UI 이벤트 ---
+    const weaponTips = {
+      bomb: '<span class="text-blue-400 font-bold">폭탄</span> : 좌클릭으로 실제 시곡중 건물을 정밀 폭격합니다. (키 1)',
+      bat: '<span class="text-amber-400 font-bold">배트</span> : 거대 배트로 3D 블록들을 멀리 날려버립니다. (키 2)',
+      laser: '<span class="text-sky-400 font-bold">레이저</span> : 고출력 빔으로 건물을 즉시 절단 관통합니다. (키 3)',
+      meteor: '<span class="text-rose-400 font-bold">운석</span> : 하늘에서 거대 운석이 떨어져 크레이터를 파냅니다. (키 4)',
+      earthquake: '<span class="text-emerald-400 font-bold">지진</span> : 땅을 흔들어 시곡중 전역을 연쇄 붕괴시킵니다. (키 5)',
+      nuke: '<span class="text-red-500 font-bold">핵폭탄</span> : 화면 전체에 섬광을 일으키며 통째로 초토화합니다. (키 6)'
+    };
+
+    function selectWeapon(wId) {
+      gameState.currentWeapon = wId;
+      document.querySelectorAll('.weapon-btn').forEach(btn => {
+        if (btn.getAttribute('data-weapon') === wId) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      document.getElementById('weapon-tip').innerHTML = weaponTips[wId] || '';
+    }
+
+    document.querySelectorAll('.weapon-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectWeapon(btn.getAttribute('data-weapon'));
+      });
+    });
+
+    window.addEventListener('keydown', (e) => {
+      const keyMap = { '1': 'bomb', '2': 'bat', '3': 'laser', '4': 'meteor', '5': 'earthquake', '6': 'nuke' };
+      if (keyMap[e.key]) {
+        selectWeapon(keyMap[e.key]);
+      }
+    });
+
+    // 유틸리티 버튼 리스너
+    document.getElementById('btn-reset').addEventListener('click', buildSigokCampus);
+    document.getElementById('modal-rebuild').addEventListener('click', buildSigokCampus);
+
+    const btnToggleNames = document.getElementById('toggle-names');
+    btnToggleNames.addEventListener('click', () => {
+      gameState.showTags = !gameState.showTags;
+      btnToggleNames.classList.toggle('text-blue-400', gameState.showTags);
+      btnToggleNames.classList.toggle('text-slate-400', !gameState.showTags);
+    });
+
+    const btnSound = document.getElementById('btn-sound');
+    const soundIcon = document.getElementById('sound-icon');
+    btnSound.addEventListener('click', () => {
+      sound.enabled = !sound.enabled;
+      soundIcon.className = sound.enabled ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark';
+      btnSound.classList.toggle('text-emerald-400', sound.enabled);
+      btnSound.classList.toggle('text-slate-400', !sound.enabled);
+    });
+
+    document.getElementById('btn-cam-default').addEventListener('click', () => {
+      camera.position.copy(initialCamPos);
+      controls.target.copy(initialTarget);
+      controls.update();
+    });
+
+    document.getElementById('btn-cam-top').addEventListener('click', () => {
+      camera.position.set(0, 260, -10);
+      controls.target.copy(initialTarget);
+      controls.update();
+    });
+
+    const btnTime = document.getElementById('btn-time');
+    const timeIcon = document.getElementById('time-icon');
+    btnTime.addEventListener('click', () => {
+      gameState.isNight = !gameState.isNight;
+      if (gameState.isNight) {
+        scene.background.setHex(0x020617);
+        scene.fog.color.setHex(0x020617);
+        sunLight.intensity = 0.25;
+        hemiLight.intensity = 0.2;
+        timeIcon.className = 'fa-solid fa-sun';
+        btnTime.querySelector('span').innerText = '낮';
+      } else {
+        scene.background.setHex(0x0f172a);
+        scene.fog.color.setHex(0x0f172a);
+        sunLight.intensity = 1.45;
+        hemiLight.intensity = 0.7;
+        timeIcon.className = 'fa-solid fa-moon';
+        btnTime.querySelector('span').innerText = '밤';
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    window.onload = function() {
+      buildSigokCampus();
+      animate();
+    };
+  </script>
+</body>
+</html>
